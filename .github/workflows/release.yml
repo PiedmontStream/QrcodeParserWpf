@@ -1,0 +1,61 @@
+name: Build and Auto-Release WPF App
+
+on:
+  workflow_dispatch: # 仅允许手动触发
+    inputs:
+      version:
+        description: '请输入版本号 (例如: 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    # 构建 x64 版本
+    - name: Build and Publish (x64)
+      run: |
+        dotnet publish -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./publish/x64
+
+    # 构建 x86 架构版本
+    - name: Build and Publish (x86)
+      run: |
+        dotnet publish -c Release -r win-x86 --no-self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./publish/x86
+
+    # 为编译好的文件加上架构标识重命名，便于用户区分下载
+    - name: Rename Executables
+      run: |
+        Get-ChildItem -Path ./publish/x64/*.exe | ForEach-Object { Move-Item $_.FullName "./publish/$($_.BaseName)-x64$($_.Extension)" }
+        Get-ChildItem -Path ./publish/x86/*.exe | ForEach-Object { Move-Item $_.FullName "./publish/$($_.BaseName)-x86$($_.Extension)" }
+
+
+    # 自动创建 Release 并上传打包好的单文件
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ github.event.inputs.version }}
+        name: "Release v${{ github.event.inputs.version }}"
+        body: |
+          ### WPF 自动构建发布
+          - **目标平台**: Windows10 x86或x64平台
+          - **运行时**: 依赖 .NET 8.0 Desktop Runtime
+          - **构建类型**: 单文件 (Single File)
+          - 看不明白什么意思就下载-x86的那个exe
+        draft: false
+        prerelease: false
+        files: ./publish/*.exe
